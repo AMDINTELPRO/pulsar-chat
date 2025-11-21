@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Pulsar — Cyber Chat</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Montserrat:wght@700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-deep:#070607;
+    --accent:#e60000;
+    --glass: rgba(255,255,255,0.04);
+    --glass-strong: rgba(255,255,255,0.06);
+    --panel-border: rgba(230,0,0,0.12);
+    --radius:14px;
+    --snd: 0.18s;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%; margin:0; background:linear-gradient(180deg,#060406 0%, #0b0607 50%, #060406 100%); font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial; color:#fff; overflow:hidden;}
+  canvas#bg { position:fixed; inset:0; width:100%; height:100%; z-index:0; display:block; }
+  /* Intro overlay */
+  #intro { position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center;
+    background: radial-gradient(ellipse at center, rgba(230,0,0,0.06), transparent 25%), linear-gradient(135deg,#0a0000 0%, #1a0000 50%, #0a0000 100%); }
+  .glitch-wrap { position:relative; display:inline-block; }
+  .glitch {
+    font-family: Montserrat, sans-serif; font-weight:700;
+    font-size:clamp(48px,10vw,120px); letter-spacing:6px;
+    color:var(--accent); text-transform:uppercase;
+    position:relative; transform:translateZ(0);
+    filter: drop-shadow(0 8px 30px rgba(230,0,0,0.18));
+    animation: pulseIntro 1.8s ease-in-out infinite;
+  }
+  .glitch::before, .glitch::after {
+    content:attr(data-text); position:absolute; left:0; top:0; width:100%; 
+  }
+  .glitch::before { color:#00ffd1; mix-blend-mode:screen; transform:translate(-6px,-2px); opacity:0.6; animation:glitchTop 2.6s linear infinite; }
+  .glitch::after  { color:#ff3cff; mix-blend-mode:screen; transform:translate(6px,2px); opacity:0.55; animation:glitchBot 3.1s linear infinite; }
+  @keyframes pulseIntro { 0%{transform:scale(0.985)}50%{transform:scale(1.02)}100%{transform:scale(0.985)} }
+  @keyframes glitchTop {
+    0%{transform:translate(-6px,-2px);} 10%{transform:translate(-20px,-6px);} 20%{transform:translate(10px,6px);} 30%{transform:translate(-6px,-2px);} 100%{transform:translate(-6px,-2px);}
+  }
+  @keyframes glitchBot {
+    0%{transform:translate(6px,2px);} 15%{transform:translate(18px,8px);} 35%{transform:translate(-12px,-6px);} 60%{transform:translate(4px,2px);} 100%{transform:translate(6px,2px);}
+  }
+  /* noise canvas sits over intro text */
+  #introCanvas { position:absolute; inset:0; z-index:35; pointer-events:none; mix-blend-mode:overlay; opacity:0.85; }
+
+  /* App */
+  #app { position:relative; z-index:10; width:100%; height:100%; display:flex; align-items:stretch; justify-content:flex-start; gap:18px; padding:18px; transition:opacity 0.5s ease; opacity:0; }
+
+  /* panels */
+  .panel { backdrop-filter: blur(12px) saturate(120%); background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border: 1px solid var(--panel-border); border-radius: var(--radius); box-shadow: 0 10px 30px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.02); }
+  #left { width:320px; min-width:260px; max-width:360px; height:calc(100% - 36px); padding:14px; display:flex; flex-direction:column; }
+  #leftHeader { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 2px 12px 8px;}
+  #leftHeader h3{margin:0; color:var(--accent); font-family:Montserrat, sans-serif; letter-spacing:1px;}
+
+  /* iPhone-like buttons */
+  .btn {
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:12px; padding:8px 12px; cursor:pointer; border:1px solid rgba(255,255,255,0.03);
+    transition: transform .14s cubic-bezier(.2,.9,.3,1), box-shadow .14s;
+    display:inline-flex; align-items:center; gap:8px; color:#fff; user-select:none;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+  }
+  .btn:active { transform: translateY(2px) scale(0.995); box-shadow: 0 3px 10px rgba(0,0,0,0.6); }
+  .btn.primary { background: linear-gradient(180deg, var(--accent), #b10000); color:#fff; font-weight:600; border: none; box-shadow: 0 12px 30px rgba(230,0,0,0.18); }
+  .btn.ghost { background: transparent; border: 1px solid rgba(255,255,255,0.04); }
+
+  /* chat list items (draggable) */
+  #chatList { flex:1; margin-top:6px; overflow:auto; padding-right:6px; display:flex; flex-direction:column; gap:8px; }
+  .chatItem { padding:12px; border-radius:12px; display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer; transition: all 0.18s ease; border:1px solid transparent; background: linear-gradient(180deg, rgba(255,255,255,0.015), rgba(255,255,255,0.01)); }
+  .chatItem:hover { transform:translateY(-4px); box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
+  .chatItem.active { border-color: rgba(230,0,0,0.22); background: linear-gradient(180deg, rgba(230,0,0,0.04), rgba(255,255,255,0.01)); }
+  .chatTitle { font-weight:600; color:#fff; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; max-width:200px; }
+  .chatMeta { font-size:12px; color:rgba(255,255,255,0.55); }
+
+  /* drag & drop indicator */
+  .dragging { opacity:0.5; transform:scale(0.98); }
+  .drop-over { outline: 2px dashed rgba(230,0,0,0.25); transform: translateY(4px); }
+
+  /* main area */
+  #main { flex:1; height:calc(100% - 36px); display:flex; flex-direction:column; padding:18px; gap:12px; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .titleArea { display:flex; align-items:center; gap:12px; }
+  .title { font-family:Montserrat, sans-serif; font-weight:700; color:var(--accent); letter-spacing:1px; cursor:text; }
+  #chatNameInput { background:transparent; border:none; color:#fff; font-size:18px; font-weight:700; font-family:Montserrat; outline:none; width:180px; }
+  #chatNameInput[readonly]{ cursor:text; }
+
+  .window { flex:1; overflow:hidden; border-radius:12px; border:1px solid var(--panel-border); background: linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0.12)); padding:16px; display:flex; flex-direction:column; gap:8px; }
+  #msgs { flex:1; overflow:auto; display:flex; flex-direction:column; gap:10px; padding-right:6px; padding-bottom:6px; }
+  .msg { max-width:78%; padding:12px 14px; border-radius:12px; line-height:1.3; word-break:break-word; opacity:0; transform:translateY(8px) scale(0.995); }
+  .msg.user { align-self:flex-end; background: linear-gradient(180deg, rgba(230,0,0,0.95), rgba(200,0,0,0.95)); color:#111; box-shadow: 0 8px 30px rgba(230,0,0,0.14); border-bottom-right-radius:4px; }
+  .msg.assistant { align-self:flex-start; background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02)); border:1px solid rgba(230,0,0,0.09); color:#fff; }
+  .msg .label { display:block; font-weight:700; font-size:12px; margin-bottom:6px; color:var(--accent); font-family:Montserrat, sans-serif; }
+
+  /* stagger animation class applied by JS */
+  .visible { animation: msgInAnim .36s cubic-bezier(.2,.9,.3,1) forwards; }
+  @keyframes msgInAnim { to { opacity:1; transform:none; } }
+
+  /* typing */
+  .typing { display:flex; align-items:center; gap:6px; color:var(--accent); padding:6px 8px; border-radius:8px; background:rgba(230,0,0,0.06); width:max-content; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); opacity:0.3; animation:dotWave 1s infinite; }
+  .dot:nth-child(2){ animation-delay:0.15s; } .dot:nth-child(3){ animation-delay:0.3s; }
+  @keyframes dotWave { 0% {opacity:0.2; transform:translateY(0)} 50% {opacity:1; transform:translateY(-6px)} 100% {opacity:0.2; transform:translateY(0)} }
+
+  /* composer */
+  #composer { display:flex; gap:12px; align-items:flex-end; padding-top:6px; }
+  textarea#in { width:100%; min-height:44px; max-height:160px; resize:none; padding:12px; border-radius:12px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border:1px solid rgba(255,255,255,0.03); color:#fff; outline:none; font-size:15px; line-height:1.3; }
+  .sendBtn { padding:10px 14px; border-radius:12px; border:none; cursor:pointer; font-weight:700; background:var(--accent); box-shadow: 0 12px 30px rgba(230,0,0,0.14); color:#111; transition:transform .12s; }
+  .sendBtn:disabled { opacity:0.45; cursor:not-allowed; transform:none; box-shadow:none; }
+
+  /* responsive */
+  @media (max-width:900px) {
+    #left { position:fixed; left:8px; top:8px; height:calc(100% - 16px); transform:translateX(-120%); transition:transform 300ms ease; z-index:40; }
+    #left.show { transform:translateX(0); }
+    #app { padding-left:6px; padding-right:6px; }
+    #left { width:86%; max-width:360px; min-width:auto; }
+    #menuToggle { display:inline-flex; }
+  }
+
+  /* small screens */
+  @media(max-width:420px){ .glitch { font-size:clamp(36px,12vw,80px); letter-spacing:3px; } }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+
+<!-- Intro with noise canvas on top -->
+<div id="intro">
+  <div class="glitch-wrap" aria-hidden="true">
+    <div class="glitch" data-text="PULSAR">PULSAR</div>
+  </div>
+  <canvas id="introCanvas"></canvas>
+</div>
+
+<!-- App -->
+<div id="app" style="display:none;">
+  <div id="left" class="panel" role="navigation" aria-label="Список чатов">
+    <div id="leftHeader">
+      <h3>PULSAR</h3>
+      <div id="controls">
+        <button id="menuToggle" class="btn ghost" title="Меню" style="display:none;">☰</button>
+        <button id="newChat" class="btn primary" title="Новый чат">Новый чат</button>
+      </div>
+    </div>
+    <div id="chatList" role="list">
+      <!-- injected -->
+    </div>
+    <div style="padding:10px; font-size:12px;" class="muted">Чаты сохраняются в браузере (localStorage). Перетаскивай для сортировки.</div>
+  </div>
+
+  <div id="main">
+    <div class="topbar">
+      <div class="titleArea">
+        <div class="title">Чат:</div>
+        <input id="chatNameInput" readonly />
+      </div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <div id="status" class="muted">Pulsar: готов</div>
+      </div>
+    </div>
+
+    <div class="window panel">
+      <div id="msgs" aria-live="polite"></div>
+      <div id="composer">
+        <textarea id="in" placeholder="Напиши сообщение..." rows="1" aria-label="Сообщение"></textarea>
+        <button id="send" class="sendBtn" disabled>Отправить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ========== CONFIG ========== */
+const OPENROUTER_KEY = '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';
+const MODEL = 'anthropic/claude-3-haiku';
+const STORAGE_KEY = 'pulsar_chats_v3';
+/* ============================ */
+
+/* state */
+let chats = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+let currentId = null;
+
+/* refs */
+const intro = document.getElementById('intro');
+const introCanvas = document.getElementById('introCanvas');
+const app = document.getElementById('app');
+const leftPanel = document.getElementById('left');
+const chatListEl = document.getElementById('chatList');
+const newChatBtn = document.getElementById('newChat');
+const chatNameInput = document.getElementById('chatNameInput');
+const msgs = document.getElementById('msgs');
+const input = document.getElementById('in');
+const sendBtn = document.getElementById('send');
+const status = document.getElementById('status');
+const menuToggle = document.getElementById('menuToggle');
+
+/* helpers */
+const escapeHtml = s => (s==null? '': String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(chats)); }
+function createId(){ return 'chat_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,7); }
+
+/* intro: pixel noise + scanlines */
+(function introNoise(){
+  const c = introCanvas;
+  const ctx = c.getContext('2d');
+  function resize(){ c.width = innerWidth; c.height = innerHeight; }
+  resize(); window.addEventListener('resize', resize);
+  let t=0;
+  function frame(){
+    t += 1;
+    // clear with slight transparent to keep trailing
+    ctx.clearRect(0,0,c.width,c.height);
+    // draw random blocks (pixel noise)
+    const density = Math.max(80, Math.min(220, Math.floor(c.width*c.height/120000)));
+    for(let i=0;i<density;i++){
+      const x = Math.random()*c.width;
+      const y = Math.random()*c.height;
+      const w = Math.random()*6;
+      const h = Math.random()*2;
+      const a = Math.random()*0.12;
+      ctx.fillStyle = `rgba(255,255,255,${a})`;
+      ctx.fillRect(x, y, w, h);
+    }
+    // scanline
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    const lineH = 2;
+    for(let y=0;y<c.height;y+=lineH*30){
+      ctx.fillRect(0, y + (t%30)*0.5, c.width, lineH);
+    }
+    // tiny rgb shift rectangles occasionally
+    if(Math.random() < 0.06){
+      const rx = Math.random()*c.width, ry = Math.random()*c.height, rw = 40 + Math.random()*160, rh = 8 + Math.random()*30;
+      ctx.fillStyle = 'rgba(0,255,200,0.04)';
+      ctx.fillRect(rx, ry, rw, rh);
+      ctx.fillStyle = 'rgba(255,0,200,0.03)';
+      ctx.fillRect(rx+2, ry+2, rw, rh);
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
+})();
+
+/* show app after intro */
+setTimeout(()=>{ intro.style.transition='opacity 420ms ease'; intro.style.opacity='0'; setTimeout(()=>{ intro.style.display='none'; app.style.display='flex'; setTimeout(()=>app.style.opacity=1,20); },420); }, 1800);
+
+/* ---------- Chat rendering & DnD ---------- */
+function renderChatList(){
+  chatListEl.innerHTML = '';
+  const ids = Object.keys(chats);
+  for(const id of ids){
+    const c = chats[id];
+    const el = document.createElement('div');
+    el.className = 'chatItem' + (id===currentId? ' active':'');
+    el.draggable = true;
+    el.dataset.id = id;
+    el.innerHTML = `
+      <div style="display:flex;flex-direction:column;">
+        <div class="chatTitle">${escapeHtml(c.name)}</div>
+        <div class="chatMeta muted">${new Date(c.created).toLocaleString()}</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn ghost open" data-id="${id}" title="Открыть">О</button>
+        <button class="btn ghost del" data-id="${id}" title="Удалить">✕</button>
+      </div>`;
+    // click opens
+    el.addEventListener('click', (e)=>{
+      if(e.target.matches('button')) return; // buttons have their own handlers
+      currentId = id; renderChatList(); renderMessages();
+      if(window.innerWidth <= 900) leftPanel.classList.remove('show');
+    });
+    // open button
+    el.querySelector('.open').addEventListener('click', (ev)=>{ ev.stopPropagation(); currentId = id; renderChatList(); renderMessages(); if(window.innerWidth <= 900) leftPanel.classList.remove('show'); });
+    // delete
+    el.querySelector('.del').addEventListener('click', (ev)=>{ ev.stopPropagation(); delete chats[id]; if(currentId===id) currentId = Object.keys(chats)[0] || null; save(); renderChatList(); renderMessages(); });
+
+    /* drag & drop */
+    el.addEventListener('dragstart', (ev)=>{
+      el.classList.add('dragging');
+      ev.dataTransfer.setData('text/plain', id);
+      ev.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', ()=> el.classList.remove('dragging'));
+    el.addEventListener('dragover', (ev)=>{
+      ev.preventDefault();
+      el.classList.add('drop-over');
+    });
+    el.addEventListener('dragleave', ()=> el.classList.remove('drop-over'));
+    el.addEventListener('drop', (ev)=>{
+      ev.preventDefault();
+      el.classList.remove('drop-over');
+      const fromId = ev.dataTransfer.getData('text/plain');
+      const toId = el.dataset.id;
+      if(fromId && toId && fromId !== toId){
+        reorderChats(fromId, toId);
+      }
+    });
+
+    chatListEl.appendChild(el);
+  }
+}
+
+/* reorder chats: place fromId before toId */
+function reorderChats(fromId, toId){
+  const order = Object.keys(chats);
+  const fromIdx = order.indexOf(fromId);
+  const toIdx = order.indexOf(toId);
+  if(fromIdx === -1 || toIdx === -1) return;
+  order.splice(fromIdx,1);
+  order.splice(toIdx,0,fromId);
+  // rebuild chats object in new order, keep properties
+  const newObj = {};
+  for(const k of order){ newObj[k] = chats[k]; }
+  chats = newObj;
+  save();
+  renderChatList();
+}
+
+/* create default chat if none */
+function makeDefaultChat(){
+  const id = createId();
+  chats[id] = { name: 'Новый чат', created: Date.now(), messages: [] };
+  currentId = id;
+  save();
+  renderChatList();
+  renderMessages();
+}
+
+/* render messages with stagger */
+function renderMessages(){
+  msgs.innerHTML = '';
+  if(!currentId){ chatNameInput.value = ''; return; }
+  const chat = chats[currentId];
+  chatNameInput.value = chat.name || 'Новый чат';
+  // create elements but add visible class with stagger
+  chat.messages.forEach((m, i)=>{
+    const el = document.createElement('div');
+    el.className = 'msg ' + (m.role === 'assistant' ? 'assistant' : 'user');
+    if(m.role === 'assistant'){
+      el.innerHTML = `<span class="label">Pulsar</span><div class="body">${escapeHtml(m.content)}</div>`;
+    } else {
+      el.innerHTML = `<div class="body">${escapeHtml(m.content)}</div>`;
+    }
+    msgs.appendChild(el);
+    // staggered reveal
+    setTimeout(()=> el.classList.add('visible'), 60 * i);
+  });
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+/* append message & play stagger for newly added */
+function appendMessage(role, text){
+  if(!currentId){
+    const id = createId();
+    chats[id] = { name: 'Новый чат', created: Date.now(), messages: [] };
+    currentId = id;
+  }
+  chats[currentId].messages.push({ role: role === 'assistant' ? 'assistant' : 'user', content: text, ts: Date.now() });
+  // if first message by user -> set chat name to first word
+  const msgCount = chats[currentId].messages.length;
+  if(msgCount === 1 && role !== 'assistant'){
+    const first = (''+text).trim().split(/\s+/)[0];
+    if(first) chats[currentId].name = first.length > 24 ? first.slice(0,24) : first;
+  }
+  save();
+  // add element instantly with animation
+  const m = chats[currentId].messages.slice(-1)[0];
+  const el = document.createElement('div'); el.className = 'msg ' + (m.role === 'assistant' ? 'assistant' : 'user');
+  if(m.role === 'assistant') el.innerHTML = `<span class="label">Pulsar</span><div class="body">${escapeHtml(m.content)}</div>`;
+  else el.innerHTML = `<div class="body">${escapeHtml(m.content)}</div>`;
+  msgs.appendChild(el);
+  // small timeout to allow layout then animate in
+  setTimeout(()=> el.classList.add('visible'), 40);
+  msgs.scrollTop = msgs.scrollHeight;
+  renderChatList();
+}
+
+/* input behaviors */
+function resizeInput(){
+  input.style.height = 'auto';
+  const h = Math.min(160, input.scrollHeight);
+  input.style.height = h + 'px';
+}
+input.addEventListener('input', ()=> { resizeInput(); sendBtn.disabled = !input.value.trim(); });
+input.addEventListener('keydown', (e) => { if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); if(!sendBtn.disabled) sendMessage(); } });
+
+/* create new chat */
+newChatBtn.addEventListener('click', ()=>{
+  const id = createId();
+  chats[id] = { name: `Новый чат`, created: Date.now(), messages: [] };
+  currentId = id; save(); renderChatList(); renderMessages(); if(window.innerWidth <= 900) leftPanel.classList.remove('show');
+});
+
+/* delete/open handled in renderChatList*/
+
+/* send / API */
+async function sendMessage(){
+  const text = input.value.trim();
+  if(!text) return;
+  appendMessage('user', text);
+  input.value = ''; resizeInput(); sendBtn.disabled = true;
+  showTyping(true); status.textContent = 'Pulsar: думает...';
+  try {
+    const messagesForApi = chats[currentId].messages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
+    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + OPENROUTER_KEY },
+      body: JSON.stringify({ model:MODEL, messages: messagesForApi })
+    });
+    if(!resp.ok){
+      const txt = await resp.text();
+      appendMessage('assistant', `Ошибка API: ${resp.status} ${resp.statusText}`);
+      console.error('API error', resp.status, txt);
+      status.textContent = 'Pulsar: ошибка';
+      return;
+    }
+    const data = await resp.json();
+    const botText = data?.choices?.[0]?.message?.content ?? 'Пустой ответ';
+    appendMessage('assistant', botText);
+    status.textContent = 'Pulsar: готов';
+  } catch(err){
+    console.error(err);
+    appendMessage('assistant', 'Ошибка сети. Попробуйте ещё раз.');
+    status.textContent = 'Pulsar: ошибка';
+  } finally {
+    showTyping(false);
+    sendBtn.disabled = false;
+  }
+}
+sendBtn.addEventListener('click', sendMessage);
+
+/* typing indicator */
+function showTyping(show){
+  const existing = document.getElementById('__typing');
+  if(show){
+    if(existing) return;
+    const t = document.createElement('div'); t.className = 'typing'; t.id = '__typing';
+    t.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div><div style="margin-left:8px;">Pulsar печатает...</div>';
+    msgs.appendChild(t); msgs.scrollTop = msgs.scrollHeight;
+  } else { if(existing) existing.remove(); }
+}
+
+/* chat name editor inline */
+chatNameInput.addEventListener('click', ()=>{
+  if(!currentId) return;
+  chatNameInput.readOnly = false;
+  chatNameInput.focus();
+  chatNameInput.select();
+});
+chatNameInput.addEventListener('blur', ()=>{
+  chatNameInput.readOnly = true;
+  if(!currentId) return;
+  const v = chatNameInput.value.trim() || chats[currentId].name;
+  chats[currentId].name = v;
+  save();
+  renderChatList();
+});
+chatNameInput.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter'){ e.preventDefault(); chatNameInput.blur(); }
+});
+
+/* initial load */
+if(!Object.keys(chats).length) makeDefaultChat();
+else { currentId = Object.keys(chats)[0]; renderChatList(); renderMessages(); }
+
+/* menu toggle for mobile */
+menuToggle.addEventListener('click', ()=> leftPanel.classList.toggle('show'));
+function updateMenuToggle(){ if(window.innerWidth <= 900){ menuToggle.style.display='inline-flex'; if(!leftPanel.classList.contains('show')) leftPanel.classList.remove('show'); } else { menuToggle.style.display='none'; leftPanel.classList.remove('show'); } }
+window.addEventListener('resize', updateMenuToggle); updateMenuToggle();
+
+/* close left panel on Escape */
+window.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && window.innerWidth <= 900) leftPanel.classList.remove('show'); });
+
+/* ---------- Canvas background: slowed particles + pointer interaction ---------- */
+(function canvasBg(){
+  const canvas = document.getElementById('bg');
+  const ctx = canvas.getContext('2d', { alpha:true });
+  let W = canvas.width = innerWidth, H = canvas.height = innerHeight;
+  window.addEventListener('resize', ()=>{ W = canvas.width = innerWidth; H = canvas.height = innerHeight; initParticles(); });
+
+  let pointer = { x: W/2, y: H/2, active:false };
+  window.addEventListener('mousemove', e => { pointer.x = e.clientX; pointer.y = e.clientY; pointer.active = true; });
+  window.addEventListener('mouseleave', ()=> pointer.active = false);
+  window.addEventListener('touchstart', e => { const t = e.touches[0]; if(t){ pointer.x = t.clientX; pointer.y = t.clientY; pointer.active = true; }});
+  window.addEventListener('touchmove', e => { const t = e.touches[0]; if(t){ pointer.x = t.clientX; pointer.y = t.clientY; pointer.active = true; }});
+  window.addEventListener('touchend', ()=> pointer.active = false);
+
+  // swipe open/close: remember start X
+  let touchStartX = null;
+  window.addEventListener('touchstart', e => { if(e.touches[0]) touchStartX = e.touches[0].clientX; });
+  window.addEventListener('touchend', e => {
+    if(window.innerWidth <= 900 && touchStartX !== null){
+      const dx = (e.changedTouches[0].clientX - touchStartX);
+      if(dx > 60) leftPanel.classList.add('show'); // right swipe open
+      if(dx < -60) leftPanel.classList.remove('show'); // left swipe close
+    }
+    touchStartX = null;
+  });
+
+  let particles = [];
+  function initParticles(){
+    particles = [];
+    const count = Math.round(Math.min(120, Math.max(40, (W*H) / 110000)));
+    for(let i=0;i<count;i++){
+      particles.push({
+        x: Math.random()*W,
+        y: Math.random()*H,
+        vx: (Math.random()-0.5) * 0.18, // SLOWED (was 0.6+)
+        vy: (Math.random()-0.5) * 0.18,
+        r: 1 + Math.random()*3
+      });
+    }
+  }
+  initParticles();
+
+  function step(){
+    ctx.clearRect(0,0,W,H);
+    // subtle gradient overlay
+    const g = ctx.createLinearGradient(0,0,W,H);
+    g.addColorStop(0, 'rgba(10,0,0,0.06)');
+    g.addColorStop(0.5, 'rgba(20,0,0,0.02)');
+    g.addColorStop(1, 'rgba(10,0,0,0.06)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    for(let i=0;i<particles.length;i++){
+      const p = particles[i];
+      // pointer attraction
+      const dx = p.x - pointer.x;
+      const dy = p.y - pointer.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if(pointer.active && dist < 180){
+        p.vx += ( (pointer.x - p.x) * 0.0005 );
+        p.vy += ( (pointer.y - p.y) * 0.0005 );
+      }
+      p.x += p.vx; p.y += p.vy;
+      if(p.x < 0 || p.x > W) p.vx *= -1;
+      if(p.y < 0 || p.y > H) p.vy *= -1;
+
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(230,0,0,${0.08 + 0.6*(p.r/4)})`;
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+      ctx.fill();
+
+      // connect near particles
+      for(let j=i+1;j<particles.length;j++){
+        const q = particles[j];
+        const dx2 = p.x - q.x, dy2 = p.y - q.y;
+        const d2 = dx2*dx2 + dy2*dy2;
+        if(d2 < 22000){
+          const alpha = 0.2 * (1 - d2/22000);
+          ctx.strokeStyle = `rgba(230,0,0,${alpha})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(p.x,p.y);
+          ctx.lineTo(q.x,q.y);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // highlight near pointer
+    if(pointer.active){
+      const rad = 90;
+      const grd = ctx.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, rad);
+      grd.addColorStop(0, 'rgba(230,0,0,0.06)');
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(pointer.x-rad, pointer.y-rad, rad*2, rad*2);
+    }
+
+    requestAnimationFrame(step);
+  }
+  step();
+})();
+
+/* done */
+</script>
+</body>
+</html>
